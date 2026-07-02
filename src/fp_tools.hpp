@@ -138,8 +138,8 @@ enum NaN_Behaviors : uint8_t {
 template <typename T>
 concept InfChecker = requires(T t, uint64_t bits) {
     { t(bits) } -> std::convertible_to<bool>;
-    { t.minNegInf() } -> std::convertible_to<uint64_t>;
-    { t.minPosInf() } -> std::convertible_to<uint64_t>;
+    { t.minNegInf() } -> std::convertible_to<uint64_t>; //should return max positive value for saturating formats
+    { t.minPosInf() } -> std::convertible_to<uint64_t>; //should retunr min negative value for saturating formats
 };
 /**
  * @concept negativeException

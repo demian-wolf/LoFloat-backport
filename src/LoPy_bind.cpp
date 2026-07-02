@@ -162,7 +162,7 @@ torch::Tensor virtual_round_params(const torch::Tensor &input, const FloatingPoi
 // block gets one auto-computed shared scale = round(amax/priv_max_normal) in the
 // scale_format, then each element is round(x/scale) in element_format, rescaled.
 // Returns a new fp32 tensor in the original numeric domain.
-torch::Tensor virtual_mx_round(
+torch::Tensor virtual_mx_round_tensor(
         const torch::Tensor &input, int block_size,
         const FloatingPointParamsPy &element_params,
         const FloatingPointParamsPy &scale_params,
@@ -338,7 +338,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
           py::arg("scale") = 1.0,
           "Round to a custom float format. If scale != 1, computes round(scale * input) (fused on CUDA).");
 
-    m.def("virtual_mx_round", &virtual_mx_round,
+    m.def("virtual_mx_round", &virtual_mx_round_tensor,
           py::arg("input"), py::arg("block_size"),
           py::arg("element_format"), py::arg("scale_format"),
           py::arg("round_mode") = Rounding_Mode::RoundToNearestEven,

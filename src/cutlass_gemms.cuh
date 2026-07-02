@@ -279,6 +279,13 @@ public:
   CUTLASS_DEVICE
   LoFMma(int accum_mant_bits, lo_float::ProjSpec ps) : accum_mant_bits(accum_mant_bits), ps(ps) {}
 
+  // Matches the patched MmaMultistage/MmaPipelined member-init, which forwards
+  // (accum_mant_bits, rounding_mode, stochastic_rounding_bits) to the warp op.
+  CUTLASS_DEVICE
+  LoFMma(int accum_mant_bits, lo_float::Rounding_Mode rounding_mode, int stochastic_rounding_bits)
+      : accum_mant_bits(accum_mant_bits),
+        ps(rounding_mode, lo_float::Saturation_Mode::OvfInf, stochastic_rounding_bits) {}
+
   CUTLASS_HOST_DEVICE void set_accum_bits(int bits) { accum_mant_bits = bits; }
   CUTLASS_HOST_DEVICE void set_proj_spec(lo_float::ProjSpec spec) { ps = spec; }
   CUTLASS_HOST_DEVICE int get_accum_bits() const { return accum_mant_bits; }

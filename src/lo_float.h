@@ -2711,7 +2711,7 @@ LOFLOAT_HOST_DEVICE LOFLOAT_FORCEINLINE c10::Half abs(c10::Half val) {
 }   
 #endif
 
-
+//only rounds mantissa, nothing else. Use only when speed is important (eg in GEMM)
 template<typename From>
 LOFLOAT_HOST_DEVICE LOFLOAT_FORCEINLINE From virtual_round(const From &from, int ToMantissaBits, ProjSpec ps = ProjSpec{}) {
 
@@ -2826,6 +2826,9 @@ LOFLOAT_HOST_DEVICE LOFLOAT_FORCEINLINE bool isnan(float value) {
 LOFLOAT_HOST_DEVICE LOFLOAT_FORCEINLINE bool isnan(double value) {
     return ::isnan(value);
 }
+LOFLOAT_HOST_DEVICE LOFLOAT_FORCEINLINE bool isnan(int value) {
+    return ::isnan((double)value);
+}
 // Native-float isinf overloads paralleling isnan above: lets the conversion
 // code call unqualified isinf()/isnan() and resolve to a device-safe overload
 // for every From type (native float/double here, Templated_Float at isinf/isnan
@@ -2835,6 +2838,9 @@ LOFLOAT_HOST_DEVICE LOFLOAT_FORCEINLINE bool isinf(float value) {
 }
 LOFLOAT_HOST_DEVICE LOFLOAT_FORCEINLINE bool isinf(double value) {
     return ::isinf(value);
+}
+LOFLOAT_HOST_DEVICE LOFLOAT_FORCEINLINE bool isinf(int value) {
+    return ::isinf((double)value);
 }
 
 
@@ -2860,6 +2866,29 @@ LOFLOAT_HOST_DEVICE LOFLOAT_FORCEINLINE From_p virtual_round(From_p& value, Floa
     const int ToMin_exp = 1 - ToFp.bias;
     const float To_min_val = std::pow(2.0, ToMin_exp)*std::pow(2.0, -ToFp.mantissa_bits);
 
+    // Largest finite magnitude of the target as a double. The naive
+    // 2^ToMax_exp*(2-2^-m) overshoots for P3109/_754 formats that reserve some
+    // top-exponent mantissa codes for inf/NaN (e.g. e5m2 max is 1.5*2^16=98304,
+    // not 1.75*2^16=114688), so decode the actual max-finite rep instead --
+    // matching numeric_limits<Templated_Float<ToFp>>::max().
+    auto to_max_value = [&]() -> double {
+        uint64_t max_rep;
+        if (ToFp.OV_behavior == Inf_Behaviors::Saturating) {
+            max_rep = ToFp.is_signed == Signedness::Signed
+                        ? (((uint64_t{1} << ToFp.bitwidth) - 1) >> 1)
+                        : ((uint64_t{1} << ToFp.bitwidth) - 1);
+        } else {
+            max_rep = static_cast<uint64_t>(ToFp.IsInf.minPosInf()) - 1;
+        }
+        const int exp_bits = ToFp.bitwidth - ToFp.mantissa_bits
+                             - (ToFp.is_signed == Signedness::Signed ? 1 : 0);
+        const int exp_field = static_cast<int>((max_rep >> ToFp.mantissa_bits)
+                                               & ((uint64_t{1} << exp_bits) - 1));
+        const uint64_t mant = max_rep & ((uint64_t{1} << ToFp.mantissa_bits) - 1);
+        const double frac = 1.0 + static_cast<double>(mant) * std::pow(2.0, -ToFp.mantissa_bits);
+        return std::pow(2.0, exp_field - ToFp.bias) * frac;
+    };
+
     // lof_abs (not abs): device-correct magnitude for native float/double; see note.
     FromBits from_bits = bit_cast<FromBits>(lof_abs(value));
     int from_exp = (from_bits >> kFromMantissaBits) - kExponentBias;
@@ -2867,6 +2896,20 @@ LOFLOAT_HOST_DEVICE LOFLOAT_FORCEINLINE From_p virtual_round(From_p& value, Floa
 
 
     if (isnan(value)) return std::numeric_limits<From>::quiet_NaN();
+
+    // Infinite input: mirror the typed run(). Propagate +/-inf only when the
+    // target keeps infinities (OV_behavior != Saturating) AND the saturation
+    // mode allows it; otherwise clamp to the target's largest finite magnitude
+    // (expressed back in `From`, sign preserved). Falling through to the generic
+    // overflow path instead would wrongly return the original inf for a
+    // saturating target and ignores ps.saturation_mode entirely.
+    if (isinf(value)) {
+        const bool to_has_inf = (ToFp.OV_behavior != Inf_Behaviors::Saturating);
+        if (ps.saturation_mode != Saturation_Mode::SatFinite && to_has_inf)
+            return value;
+        const FromBits mag = bit_cast<FromBits>(from_double<From>(to_max_value()));
+        return bit_cast<From>(static_cast<FromBits>(mag | sign_bit));
+    }
 
     const float abs_val = get_float(lof_abs(value));
     if (abs_val < To_min_val) {
@@ -2933,7 +2976,17 @@ LOFLOAT_HOST_DEVICE LOFLOAT_FORCEINLINE From_p virtual_round(From_p& value, Floa
     }
 
     from_exp = (from_bits >> kFromMantissaBits) - kExponentBias;
-    if (from_exp > ToMax_exp) return ToFp.OV_behavior == Inf_Behaviors::Saturating ? value : std::numeric_limits<From>::infinity();
+    if (from_exp > ToMax_exp) {
+        // Finite input overflowed the target's finite range. Honor ps.saturation_mode
+        // and the sign (the old code returned bare +inf / the untouched value):
+        //   OvfInf (& target has inf) -> +/-inf; SatFinite / SatPropagate -> +/-max.
+        const bool emit_inf = (ps.saturation_mode == Saturation_Mode::OvfInf)
+                              && (ToFp.OV_behavior != Inf_Behaviors::Saturating);
+        const FromBits mag = emit_inf
+            ? bit_cast<FromBits>(std::numeric_limits<From>::infinity())
+            : bit_cast<FromBits>(from_double<From>(to_max_value()));
+        return bit_cast<From>(static_cast<FromBits>(mag | sign_bit));
+    }
 
     return bit_cast<From>(static_cast<FromBits>(from_bits | sign_bit));
 }
@@ -2963,6 +3016,45 @@ static constexpr std::size_t step = FromBitsSIMD::size;
 static constexpr std::size_t unroll = 4;
 static constexpr std::size_t block_size = step * unroll;
 
+// Infinite-input handling (mirrors the typed run() and the scalar virtual_round
+// above): propagate +/-inf only when the target keeps infinities and the
+// saturation mode allows it, otherwise clamp to the target's largest finite
+// magnitude. ToMax_exp here is BIASED (kExponentBias added above), so undo that
+// bias to recover the true power of two.
+const bool to_has_inf   = (ToFp.OV_behavior != Inf_Behaviors::Saturating);
+const bool propagate_inf = (ps.saturation_mode != Saturation_Mode::SatFinite) && to_has_inf;
+// Correct largest-finite magnitude of the target (see to_max_value in the scalar
+// overload above): the naive 2^ToMax_exp*(2-2^-m) overshoots for P3109/_754
+// formats that reserve top-exponent mantissa codes for inf/NaN.
+double to_max_d;
+{
+    uint64_t max_rep;
+    if (ToFp.OV_behavior == Inf_Behaviors::Saturating) {
+        max_rep = ToFp.is_signed == Signedness::Signed
+                    ? (((uint64_t{1} << ToFp.bitwidth) - 1) >> 1)
+                    : ((uint64_t{1} << ToFp.bitwidth) - 1);
+    } else {
+        max_rep = static_cast<uint64_t>(ToFp.IsInf.minPosInf()) - 1;
+    }
+    const int exp_bits_to = ToFp.bitwidth - ToFp.mantissa_bits
+                           - (ToFp.is_signed == Signedness::Signed ? 1 : 0);
+    const int exp_field_to = static_cast<int>((max_rep >> ToFp.mantissa_bits)
+                                              & ((uint64_t{1} << exp_bits_to) - 1));
+    const uint64_t mant_to = max_rep & ((uint64_t{1} << ToFp.mantissa_bits) - 1);
+    to_max_d = std::pow(2.0, exp_field_to - ToFp.bias)
+               * (1.0 + (double)mant_to * std::pow(2.0, -ToFp.mantissa_bits));
+}
+const FromSIMD max_magnitude = FromSIMD(from_double<From>(to_max_d));
+// For an infinite INPUT: propagate inf or clamp to max (sign applied per lane).
+const FromSIMD inf_magnitude = propagate_inf
+    ? FromSIMD(std::numeric_limits<From>::infinity())
+    : max_magnitude;
+// For a FINITE input that OVERFLOWS: OvfInf (& target has inf) -> inf, else max.
+const bool ovf_emit_inf = (ps.saturation_mode == Saturation_Mode::OvfInf) && to_has_inf;
+const FromSIMD overflow_magnitude = ovf_emit_inf
+    ? FromSIMD(std::numeric_limits<From>::infinity())
+    : max_magnitude;
+
 #ifdef _LOFOPENMP
 #pragma omp parallel for
 #endif
@@ -2978,7 +3070,11 @@ for (int i = 0; i < n - (n % block_size); i += block_size) {
         
         FromBitsSIMD sign_bit;
         if constexpr (get_signedness_v<From> == Signedness::Signed) {
-            sign_bit = from_bits >> (kFromBits - 1);
+            // Take the sign from the ORIGINAL value, not from `from_bits`, which
+            // is bit_cast(abs(from_vals)) and so always has a clear sign bit --
+            // extracting it there silently dropped the sign of every negative
+            // finite input (e.g. -3 came out +3).
+            sign_bit = xs::bit_cast<FromBitsSIMD>(from_vals) >> (kFromBits - 1);
         } else {
             sign_bit = FromBitsSIMD(FromBits{0});
         }
@@ -2986,10 +3082,15 @@ for (int i = 0; i < n - (n % block_size); i += block_size) {
         FromBitsSIMD from_exp = from_bits >> kFromMantissaBits;
         BoolBitsSIMD underflow = from_exp < FromBitsSIMD(FromBits(ToMin_exp));
         BoolFromSIMD is_nan = xs::isnan(from_vals);
-        BoolBitsSIMD early_exit = underflow || xs::batch_bool_cast<FromBits>(is_nan);
+        BoolFromSIMD is_inf = xs::isinf(from_vals);
+        BoolBitsSIMD early_exit = underflow
+                                  || xs::batch_bool_cast<FromBits>(is_nan)
+                                  || xs::batch_bool_cast<FromBits>(is_inf);
         
         result[u] = FromSIMD(From{0});
         result[u] = xs::select(is_nan, FromSIMD(std::numeric_limits<From>::quiet_NaN()), result[u]);
+        // +/-inf -> propagated inf or clamped +/-max, sign taken from the input.
+        result[u] = xs::select(is_inf, xs::copysign(inf_magnitude, from_vals), result[u]);
         
         FromBitsSIMD processed_bits = RoundMantissa(from_bits, FromBitsSIMD(-kDigitShift), ps);
         processed_bits = processed_bits & mask;
@@ -2999,14 +3100,12 @@ for (int i = 0; i < n - (n % block_size); i += block_size) {
         
         FromBitsSIMD final_bits = processed_bits | (sign_bit << (kFromBits - 1));
         FromSIMD normal_result = xs::bit_cast<FromSIMD>(final_bits);
-        
-        FromSIMD overflow_result;
-        if (ToFp.OV_behavior == Inf_Behaviors::Saturating) {
-            overflow_result = normal_result;
-        } else {
-            overflow_result = FromSIMD(std::numeric_limits<From>::infinity());
-        }
-        
+
+        // Overflow -> inf or max per ps.saturation_mode, sign taken from the input
+        // (the old code returned bare +inf, dropping the sign, and returned the
+        // un-clamped masked bits for a saturating target).
+        FromSIMD overflow_result = xs::copysign(overflow_magnitude, from_vals);
+
         FromSIMD processed_result = xs::select(xs::batch_bool_cast<From>(overflow), overflow_result, normal_result);
         result[u] = xs::select(xs::batch_bool_cast<From>(early_exit), result[u], processed_result);
     }
@@ -3171,7 +3270,7 @@ for (int i = 0; i < n - (n % block_size); i += block_size) {
                         }
                         else
                         {
-                            bits = RoundMantissa(bits, -kDigitShift, ps);
+                            bits = RoundMantissa(bits, -kDigitShift, ps, !from_sign_bit);
                             bits >>= -kDigitShift;
                         }
 
@@ -3213,7 +3312,7 @@ for (int i = 0; i < n - (n % block_size); i += block_size) {
                             // otherwise the lower precision bits may already be lost.  There is
                             // an edge-case where rounding to a normalized value would normally
                             // round down, but for a subnormal, we need to round up.
-                            rounded_from_bits = RoundMantissa(rounded_from_bits, exponent_shift, ps);
+                            rounded_from_bits = RoundMantissa(rounded_from_bits, exponent_shift, ps, !from_sign_bit);
 
                             bits = (rounded_from_bits >> exponent_shift);
                         }
@@ -3301,7 +3400,7 @@ for (int i = 0; i < n - (n % block_size); i += block_size) {
                 if constexpr (kDigitShift < 0)
                 {
                     // need some logic to add leading 1 if normalized
-                    rounded_from_bits = RoundMantissa(rounded_from_bits, -kDigitShift, ps);
+                    rounded_from_bits = RoundMantissa(rounded_from_bits, -kDigitShift, ps, !from_sign_bit);
                     // Zero-out tail bits.
                     rounded_from_bits &= ~((WideBits{1} << (-kDigitShift)) - 1);
                 }
@@ -3438,19 +3537,50 @@ static WideBitsSIMD handle_shrinking_conversion(
 {
     [[maybe_unused]] const Rounding_Mode round_mode = ps.rounding_mode;
     [[maybe_unused]] const int stoch_len = ps.stoch_length;
-    // Start normal path early for ILP - no dependency on subnormal checks
+    // Start normal path early for ILP - no dependency on subnormal checks.
+    // `ovf_lhs` retains the rebiased bits BEFORE the final down-shift (for
+    // kDigitShift<0) / after the up-shift (for kDigitShift>=0); it is what the
+    // scalar run() calls `rounded_from_bits` and compares against the target max.
     WideBitsSIMD normal_result;
+    WideBitsSIMD ovf_lhs;
+    const WideBits kToMaxRep =
+        static_cast<WideBits>(bit_cast<ToBits>(std::numeric_limits<To>::max()));
+    WideBits aligned_highest = kToMaxRep;
     if constexpr (kDigitShift < 0) {
         auto mod_digitshift = WideBitsSIMD(-kDigitShift);
-        normal_result = RoundMantissa(from_bits, mod_digitshift, ps);
-        normal_result = normal_result & ~((WideBits{1} << mod_digitshift) - 1);
-        normal_result = (normal_result +
-            WideBitsSIMD((static_cast<WideBits>(kExponentOffset) << kFromMantissaBits)))
-            >> mod_digitshift;
+        WideBitsSIMD rounded = RoundMantissa(from_bits, mod_digitshift, ps);
+        rounded = rounded & ~((WideBits{1} << (-kDigitShift)) - 1);
+        ovf_lhs = rounded +
+            WideBitsSIMD(static_cast<WideBits>(kExponentOffset) << kFromMantissaBits);
+        normal_result = ovf_lhs >> mod_digitshift;
+        aligned_highest <<= (-kDigitShift);
     } else {
-        normal_result = (from_bits +
-            WideBitsSIMD((static_cast<WideBits>(kExponentOffset) << kFromMantissaBits)))
+        ovf_lhs = (from_bits +
+            WideBitsSIMD(static_cast<WideBits>(kExponentOffset) << kFromMantissaBits))
             << WideBitsSIMD(kDigitShift);
+        normal_result = ovf_lhs;
+    }
+
+    // Finite-overflow clamp (was entirely missing here -- the rebias arithmetic
+    // silently wrapped an over-range finite input to a bogus small value, e.g.
+    // Project<f754>(1e30) -> 12). Only compiled when the target's dynamic range
+    // is actually narrower than the source's, matching the scalar run() guard.
+    // Subnormal lanes falsely trip `overflow` (the negative kExponentOffset wraps
+    // their rebiased bits high), but the is_subnormal select below overrides them,
+    // so this stays confined to the normal path.
+    if constexpr (std::make_pair(std::numeric_limits<To>::max_exponent,
+                                 std::numeric_limits<To>::digits) <
+                  std::make_pair(std::numeric_limits<From>::max_exponent,
+                                 std::numeric_limits<From>::digits))
+    {
+        // OvfInf (and target has inf) -> inf; SatFinite / SatPropagate -> max.
+        const bool emit_inf = (ps.saturation_mode == Saturation_Mode::OvfInf) &&
+                              std::numeric_limits<To>::has_infinity;
+        const WideBits ovf_mag = static_cast<WideBits>(bit_cast<ToBits>(
+            emit_inf ? std::numeric_limits<To>::infinity()
+                     : std::numeric_limits<To>::max()));
+        auto overflow = ovf_lhs > WideBitsSIMD(aligned_highest);
+        normal_result = xs::select(overflow, WideBitsSIMD(ovf_mag), normal_result);
     }
 
     auto input_exp = (from_bits >> kFromMantissaBits);
@@ -3547,6 +3677,50 @@ static LOFLOAT_HOST void run(const From* from,
         }
     };
 
+    // Inf/NaN handling (mirrors the scalar run() above). The SIMD path works on
+    // sign-stripped magnitude bits, so we splice the target's magnitude
+    // bit-pattern in for special inputs; the sign is reattached by the shared
+    // sign-select below. Only meaningful when `From` has IEEE inf/NaN (native
+    // float/double) -- for formats whose all-ones exponent is a finite value the
+    // block is compiled out, matching the scalar isinf/isnan being false there.
+    const bool to_has_inf = std::numeric_limits<To>::has_infinity
+                            && (get_overflow_behavior_v<To> != Inf_Behaviors::Saturating);
+    const bool propagate_inf = (ps.saturation_mode != Saturation_Mode::SatFinite) && to_has_inf;
+    const WideBits from_inf_w = static_cast<WideBits>(
+        bit_cast<FromBits>(std::numeric_limits<From>::infinity()));
+    const WideBits qnan_bits_w = static_cast<WideBits>(
+        bit_cast<ToBits>(std::numeric_limits<To>::quiet_NaN()));
+    const WideBits inf_or_max_bits_w = static_cast<WideBits>(bit_cast<ToBits>(
+        propagate_inf ? std::numeric_limits<To>::infinity()
+                      : std::numeric_limits<To>::max()));
+
+    // Finalize one lane batch: attach the sign to the finite magnitude, THEN
+    // splice in special values. Sign must be attached first and specials last,
+    // because a NaN code can BE the sign bit (e.g. P3109's canonical NaN is
+    // 0x80): applying the special before the sign-strip below would let the
+    // sign-select clear it back to +0. `magnitude` is the finite result
+    // (target magnitude bits); `src_mag` is the sign-stripped source bits. For
+    // IEEE sources, bits == inf-pattern is an infinity and bits > inf-pattern is
+    // a NaN (the exponent-ordering property).
+    auto finalize = [&](WideBitsSIMD magnitude, const WideBitsSIMD& src_mag,
+                        const xs::batch_bool<WideBits, arch>& signed_mask) -> WideBitsSIMD {
+        WideBitsSIMD out = xs::select(signed_mask,
+                                      magnitude | WideBitsSIMD(kToSignBit),
+                                      magnitude & ~WideBitsSIMD(kToSignBit));
+        if constexpr (std::numeric_limits<From>::has_infinity) {
+            auto is_inf_lane = (src_mag == WideBitsSIMD(from_inf_w));
+            auto is_nan_lane = (src_mag >  WideBitsSIMD(from_inf_w));
+            // inf -> propagated inf or clamped max, sign preserved.
+            const WideBitsSIMD signed_special = xs::select(signed_mask,
+                WideBitsSIMD(inf_or_max_bits_w) | WideBitsSIMD(kToSignBit),
+                WideBitsSIMD(inf_or_max_bits_w) & ~WideBitsSIMD(kToSignBit));
+            out = xs::select(is_inf_lane, signed_special, out);
+            // NaN -> canonical, signless target NaN code (never sign-adjusted).
+            out = xs::select(is_nan_lane, WideBitsSIMD(qnan_bits_w), out);
+        }
+        return out;
+    };
+
     // Process loop body for a single iteration
     auto process_iteration = [&](int i) -> WideBitsSIMD {
    WideBitsSIMD from_bits_wide = load_from_widened(i);
@@ -3579,12 +3753,8 @@ static LOFLOAT_HOST void run(const From* from,
         finite_out = from_bits;
     }
     
-        finite_out = xs::select(
-            signed_mask_wide,
-            finite_out | WideBitsSIMD(kToSignBit),
-            finite_out & ~WideBitsSIMD(kToSignBit)
-        );
-        
+        finite_out = finalize(finite_out, from_bits, signed_mask_wide);
+
         return finite_out;
     };
 
@@ -3652,17 +3822,9 @@ static LOFLOAT_HOST void run(const From* from,
                 finite_out_1 = from_bits_1;
             }
             
-            // Apply sign bits
-            finite_out_0 = xs::select(
-                signed_mask_wide_0,
-                finite_out_0 | WideBitsSIMD(kToSignBit),
-                finite_out_0 & ~WideBitsSIMD(kToSignBit)
-            );
-            finite_out_1 = xs::select(
-                signed_mask_wide_1,
-                finite_out_1 | WideBitsSIMD(kToSignBit),
-                finite_out_1 & ~WideBitsSIMD(kToSignBit)
-            );
+            // Sign + special handling (sign first, specials last -- see finalize).
+            finite_out_0 = finalize(finite_out_0, from_bits_0, signed_mask_wide_0);
+            finite_out_1 = finalize(finite_out_1, from_bits_1, signed_mask_wide_1);
 
             // Store all results
             store_to_full(idx, finite_out_0);
@@ -3760,26 +3922,11 @@ static LOFLOAT_HOST void run(const From* from,
             finite_out_3 = from_bits_3;
         }
         
-        finite_out_0 = xs::select(
-            signed_mask_wide_0,
-            finite_out_0 | WideBitsSIMD(kToSignBit),
-            finite_out_0 & ~WideBitsSIMD(kToSignBit)
-        );
-        finite_out_1 = xs::select(
-            signed_mask_wide_1,
-            finite_out_1 | WideBitsSIMD(kToSignBit),
-            finite_out_1 & ~WideBitsSIMD(kToSignBit)
-        );
-        finite_out_2 = xs::select(
-            signed_mask_wide_2,
-            finite_out_2 | WideBitsSIMD(kToSignBit),
-            finite_out_2 & ~WideBitsSIMD(kToSignBit)
-        );
-        finite_out_3 = xs::select(
-            signed_mask_wide_3,
-            finite_out_3 | WideBitsSIMD(kToSignBit),
-            finite_out_3 & ~WideBitsSIMD(kToSignBit)
-        );
+        // Sign + special handling (sign first, specials last -- see finalize).
+        finite_out_0 = finalize(finite_out_0, from_bits_0, signed_mask_wide_0);
+        finite_out_1 = finalize(finite_out_1, from_bits_1, signed_mask_wide_1);
+        finite_out_2 = finalize(finite_out_2, from_bits_2, signed_mask_wide_2);
+        finite_out_3 = finalize(finite_out_3, from_bits_3, signed_mask_wide_3);
     
         store_to_full(i, finite_out_0);
         store_to_full(i + step, finite_out_1);

@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -e
 
+# ---- 0. Submodules ----
+# xsimd (CPU SIMD) and cutlass (GPU) are header-only and just need to be
+# checked out. blis must additionally be *compiled* before the BLIS
+# micro-kernel tests; that build is driven on demand by test/Makefile
+# (`make blis` / `make test_blis_lof`), not here.
+echo "==> Updating git submodules..."
+git submodule update --init --recursive
+
 # ---- 1. C++ headers via CMake ----
 echo "==> Installing C++ headers..."
 cmake -B build -DCUDAToolkit_ROOT=/usr/local/cuda-13.2

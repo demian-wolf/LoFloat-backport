@@ -86,18 +86,18 @@ inline std::ostream& operator<<(std::ostream& os, const Templated_Float<Fp>& x)
 
 // 2) ceil
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> ceil(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> ceil(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
-    return Templated_Float<Fp>(ConstexprCeil(static_cast<double>(x)));
+    return Project<Templated_Float<Fp>>(ConstexprCeil(static_cast<double>(x)), ps);
 }
 
 // 3) floor
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> floor(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> floor(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     // same trick: -ceil(-x)
-    return Templated_Float<Fp>(
-        -ConstexprCeil(-static_cast<double>(x))
+    return Project<Templated_Float<Fp>>(
+        -ConstexprCeil(-static_cast<double>(x)), ps
     );
 }
 
@@ -121,59 +121,59 @@ inline constexpr double lof_pi = 3.14159265358979323846264338327950288;
 
 // ---- logarithms: x<0 -> invalid, x==0 -> divideByZero --------------------
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> log(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> log(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     if (xd < 0.0)       LOF_INVALID(Fp);
     else if (xd == 0.0) LOF_DIVZERO(Fp);
-    return Templated_Float<Fp>(std::log(xd));
+    return Project<Templated_Float<Fp>>(std::log(xd), ps);
 }
 
 // log2 (base-2)
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> log2(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> log2(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     if (xd < 0.0)       LOF_INVALID(Fp);
     else if (xd == 0.0) LOF_DIVZERO(Fp);
-    return Templated_Float<Fp>(std::log2(xd));
+    return Project<Templated_Float<Fp>>(std::log2(xd), ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> log10(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> log10(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     if (xd < 0.0)       LOF_INVALID(Fp);
     else if (xd == 0.0) LOF_DIVZERO(Fp);
-    return Templated_Float<Fp>(std::log10(xd));
+    return Project<Templated_Float<Fp>>(std::log10(xd), ps);
 }
 
 // ---- log(1+x) family: x<-1 -> invalid, x==-1 -> divideByZero -------------
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> logp1(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> logp1(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     if (xd < -1.0)       LOF_INVALID(Fp);
     else if (xd == -1.0) LOF_DIVZERO(Fp);
-    return Templated_Float<Fp>(std::log1p(xd));
+    return Project<Templated_Float<Fp>>(std::log1p(xd), ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> log2p1(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> log2p1(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     if (xd < -1.0)       LOF_INVALID(Fp);
     else if (xd == -1.0) LOF_DIVZERO(Fp);
-    return Templated_Float<Fp>(std::log2(1.0 + xd));
+    return Project<Templated_Float<Fp>>(std::log2(1.0 + xd), ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> log10p1(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> log10p1(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     if (xd < -1.0)       LOF_INVALID(Fp);
     else if (xd == -1.0) LOF_DIVZERO(Fp);
-    return Templated_Float<Fp>(std::log10(1.0 + xd));
+    return Project<Templated_Float<Fp>>(std::log10(1.0 + xd), ps);
 }
 
 // 5) max
@@ -193,54 +193,54 @@ inline Templated_Float<Fp> min(Templated_Float<Fp> x, Templated_Float<Fp> y) noe
 // ---- powers / roots ------------------------------------------------------
 // 7) sqrt: x<0 -> invalid
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> sqrt(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> sqrt(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     if (xd < 0.0) LOF_INVALID(Fp);
-    return Templated_Float<Fp>(std::sqrt(xd));
+    return Project<Templated_Float<Fp>>(std::sqrt(xd), ps);
 }
 
 // rSqrt = 1/sqrt(x): x<0 -> invalid, x==±0 -> divideByZero
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> rSqrt(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> rSqrt(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     if (xd < 0.0)       LOF_INVALID(Fp);
     else if (xd == 0.0) LOF_DIVZERO(Fp);
-    return Templated_Float<Fp>(1.0 / std::sqrt(xd));
+    return Project<Templated_Float<Fp>>(1.0 / std::sqrt(xd), ps);
 }
 
 // hypot: no domain/pole exceptions (overflow/underflow only)
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> hypot(Templated_Float<Fp> x, Templated_Float<Fp> y) noexcept
+inline Templated_Float<Fp> hypot(Templated_Float<Fp> x, Templated_Float<Fp> y, ProjSpec ps = ProjSpec{}) noexcept
 {
-    return Templated_Float<Fp>(std::hypot(static_cast<double>(x), static_cast<double>(y)));
+    return Project<Templated_Float<Fp>>(std::hypot(static_cast<double>(x), static_cast<double>(y)), ps);
 }
 
 // 8) pow (integer base, float exponent) — original convenience overload
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> pow(int base, Templated_Float<Fp> expVal)
+inline Templated_Float<Fp> pow(int base, Templated_Float<Fp> expVal, ProjSpec ps = ProjSpec{})
 {
-    return Templated_Float<Fp>(
-        std::pow(static_cast<double>(base), static_cast<double>(expVal))
+    return Project<Templated_Float<Fp>>(
+        std::pow(static_cast<double>(base), static_cast<double>(expVal)), ps
     );
 }
 
 // pow(x, y): x<0 with non-integer y -> invalid; x==0 with y<0 -> divideByZero
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> pow(Templated_Float<Fp> x, Templated_Float<Fp> y)
+inline Templated_Float<Fp> pow(Templated_Float<Fp> x, Templated_Float<Fp> y, ProjSpec ps = ProjSpec{})
 {
     const double xd = static_cast<double>(x);
     const double yd = static_cast<double>(y);
     if (xd < 0.0 && yd != std::floor(yd)) LOF_INVALID(Fp);
     else if (xd == 0.0 && yd < 0.0)       LOF_DIVZERO(Fp);
-    return Templated_Float<Fp>(std::pow(xd, yd));
+    return Project<Templated_Float<Fp>>(std::pow(xd, yd), ps);
 }
 
 // powr(x, y) = exp(y*log(x)); domain excludes negative x.
 // x<0 -> invalid; (±0,±0)/(+∞,±0)/(+1,±∞) -> invalid; ±0 with y<0 -> divideByZero
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> powr(Templated_Float<Fp> x, Templated_Float<Fp> y)
+inline Templated_Float<Fp> powr(Templated_Float<Fp> x, Templated_Float<Fp> y, ProjSpec ps = ProjSpec{})
 {
     const double xd = static_cast<double>(x);
     const double yd = static_cast<double>(y);
@@ -251,122 +251,122 @@ inline Templated_Float<Fp> powr(Templated_Float<Fp> x, Templated_Float<Fp> y)
         LOF_INVALID(Fp);
     else if (xd == 0.0 && yd < 0.0)
         LOF_DIVZERO(Fp);
-    return Templated_Float<Fp>(std::exp(yd * std::log(xd)));
+    return Project<Templated_Float<Fp>>(std::exp(yd * std::log(xd)), ps);
 }
 
 // compound(x, n) = (1+x)^n: x<-1 -> invalid; x==-1 with n<0 -> divideByZero
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> compound(Templated_Float<Fp> x, int n)
+inline Templated_Float<Fp> compound(Templated_Float<Fp> x, int n, ProjSpec ps = ProjSpec{})
 {
     const double xd = static_cast<double>(x);
     if (xd < -1.0)                 LOF_INVALID(Fp);
     else if (xd == -1.0 && n < 0)  LOF_DIVZERO(Fp);
-    return Templated_Float<Fp>(std::pow(1.0 + xd, static_cast<double>(n)));
+    return Project<Templated_Float<Fp>>(std::pow(1.0 + xd, static_cast<double>(n)), ps);
 }
 
 // rootn(x, n) = x^(1/n): n==0 -> invalid; x<0 with even n -> invalid;
 //                        x==0 with n<0 -> divideByZero
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> rootn(Templated_Float<Fp> x, int n)
+inline Templated_Float<Fp> rootn(Templated_Float<Fp> x, int n, ProjSpec ps = ProjSpec{})
 {
     const double xd = static_cast<double>(x);
     if (n == 0 || (xd < 0.0 && (n % 2 == 0))) LOF_INVALID(Fp);
     else if (xd == 0.0 && n < 0)              LOF_DIVZERO(Fp);
     // sign-preserving root for odd n and negative x.
     const double mag = std::pow(std::fabs(xd), 1.0 / static_cast<double>(n));
-    return Templated_Float<Fp>((xd < 0.0 && (n % 2 != 0)) ? -mag : mag);
+    return Project<Templated_Float<Fp>>((xd < 0.0 && (n % 2 != 0)) ? -mag : mag, ps);
 }
 
 // pown(x, n) = x^n (integer n): x==±0 with n<0 -> divideByZero
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> pown(Templated_Float<Fp> x, int n)
+inline Templated_Float<Fp> pown(Templated_Float<Fp> x, int n, ProjSpec ps = ProjSpec{})
 {
     const double xd = static_cast<double>(x);
     if (xd == 0.0 && n < 0) LOF_DIVZERO(Fp);
-    return Templated_Float<Fp>(std::pow(xd, static_cast<double>(n)));
+    return Project<Templated_Float<Fp>>(std::pow(xd, static_cast<double>(n)), ps);
 }
 
 // ---- exponentials: no domain/pole exceptions (overflow/underflow only) ---
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> exp(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> exp(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
-    return Templated_Float<Fp>(std::exp(static_cast<double>(x)));
+    return Project<Templated_Float<Fp>>(std::exp(static_cast<double>(x)), ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> expm1(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> expm1(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
-    return Templated_Float<Fp>(std::expm1(static_cast<double>(x)));
+    return Project<Templated_Float<Fp>>(std::expm1(static_cast<double>(x)), ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> exp2(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> exp2(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
-    return Templated_Float<Fp>(std::exp2(static_cast<double>(x)));
+    return Project<Templated_Float<Fp>>(std::exp2(static_cast<double>(x)), ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> exp2m1(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> exp2m1(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
-    return Templated_Float<Fp>(std::exp2(static_cast<double>(x)) - 1.0);
+    return Project<Templated_Float<Fp>>(std::exp2(static_cast<double>(x)) - 1.0, ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> exp10(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> exp10(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
-    return Templated_Float<Fp>(std::pow(10.0, static_cast<double>(x)));
+    return Project<Templated_Float<Fp>>(std::pow(10.0, static_cast<double>(x)), ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> exp10m1(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> exp10m1(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
-    return Templated_Float<Fp>(std::pow(10.0, static_cast<double>(x)) - 1.0);
+    return Project<Templated_Float<Fp>>(std::pow(10.0, static_cast<double>(x)) - 1.0, ps);
 }
 
 // ---- trigonometric: |x|==∞ -> invalid ------------------------------------
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> sin(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> sin(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     if (std::isinf(xd)) LOF_INVALID(Fp);
-    return Templated_Float<Fp>(std::sin(xd));
+    return Project<Templated_Float<Fp>>(std::sin(xd), ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> cos(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> cos(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     if (std::isinf(xd)) LOF_INVALID(Fp);
-    return Templated_Float<Fp>(std::cos(xd));
+    return Project<Templated_Float<Fp>>(std::cos(xd), ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> tan(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> tan(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     if (std::isinf(xd)) LOF_INVALID(Fp);
-    return Templated_Float<Fp>(std::tan(xd));
+    return Project<Templated_Float<Fp>>(std::tan(xd), ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> sinPi(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> sinPi(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     if (std::isinf(xd)) LOF_INVALID(Fp);
-    return Templated_Float<Fp>(std::sin(lof_pi * xd));
+    return Project<Templated_Float<Fp>>(std::sin(lof_pi * xd), ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> cosPi(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> cosPi(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     if (std::isinf(xd)) LOF_INVALID(Fp);
-    return Templated_Float<Fp>(std::cos(lof_pi * xd));
+    return Project<Templated_Float<Fp>>(std::cos(lof_pi * xd), ps);
 }
 
 // tanPi: |x|==∞ -> invalid; x a half-integer (2x is an odd integer) -> divideByZero
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> tanPi(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> tanPi(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     if (std::isinf(xd)) {
@@ -376,109 +376,109 @@ inline Templated_Float<Fp> tanPi(Templated_Float<Fp> x) noexcept
         if (two_x == std::trunc(two_x) && std::fmod(two_x, 2.0) != 0.0)
             LOF_DIVZERO(Fp);
     }
-    return Templated_Float<Fp>(std::tan(lof_pi * xd));
+    return Project<Templated_Float<Fp>>(std::tan(lof_pi * xd), ps);
 }
 
 // ---- inverse trigonometric: |x|>1 -> invalid for asin/acos ---------------
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> asin(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> asin(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     if (std::fabs(xd) > 1.0) LOF_INVALID(Fp);
-    return Templated_Float<Fp>(std::asin(xd));
+    return Project<Templated_Float<Fp>>(std::asin(xd), ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> acos(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> acos(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     if (std::fabs(xd) > 1.0) LOF_INVALID(Fp);
-    return Templated_Float<Fp>(std::acos(xd));
+    return Project<Templated_Float<Fp>>(std::acos(xd), ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> atan(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> atan(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
-    return Templated_Float<Fp>(std::atan(static_cast<double>(x)));
+    return Project<Templated_Float<Fp>>(std::atan(static_cast<double>(x)), ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> atan2(Templated_Float<Fp> y, Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> atan2(Templated_Float<Fp> y, Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
-    return Templated_Float<Fp>(std::atan2(static_cast<double>(y), static_cast<double>(x)));
+    return Project<Templated_Float<Fp>>(std::atan2(static_cast<double>(y), static_cast<double>(x)), ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> asinPi(Templated_Float<Fp> x) noexcept
-{
-    const double xd = static_cast<double>(x);
-    if (std::fabs(xd) > 1.0) LOF_INVALID(Fp);
-    return Templated_Float<Fp>(std::asin(xd) / lof_pi);
-}
-
-template <FloatingPointParams Fp>
-inline Templated_Float<Fp> acosPi(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> asinPi(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     if (std::fabs(xd) > 1.0) LOF_INVALID(Fp);
-    return Templated_Float<Fp>(std::acos(xd) / lof_pi);
+    return Project<Templated_Float<Fp>>(std::asin(xd) / lof_pi, ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> atanPi(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> acosPi(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
-    return Templated_Float<Fp>(std::atan(static_cast<double>(x)) / lof_pi);
+    const double xd = static_cast<double>(x);
+    if (std::fabs(xd) > 1.0) LOF_INVALID(Fp);
+    return Project<Templated_Float<Fp>>(std::acos(xd) / lof_pi, ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> atan2Pi(Templated_Float<Fp> y, Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> atanPi(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
-    return Templated_Float<Fp>(std::atan2(static_cast<double>(y), static_cast<double>(x)) / lof_pi);
+    return Project<Templated_Float<Fp>>(std::atan(static_cast<double>(x)) / lof_pi, ps);
+}
+
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> atan2Pi(Templated_Float<Fp> y, Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
+{
+    return Project<Templated_Float<Fp>>(std::atan2(static_cast<double>(y), static_cast<double>(x)) / lof_pi, ps);
 }
 
 // ---- hyperbolic ----------------------------------------------------------
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> sinh(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> sinh(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
-    return Templated_Float<Fp>(std::sinh(static_cast<double>(x)));
+    return Project<Templated_Float<Fp>>(std::sinh(static_cast<double>(x)), ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> cosh(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> cosh(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
-    return Templated_Float<Fp>(std::cosh(static_cast<double>(x)));
+    return Project<Templated_Float<Fp>>(std::cosh(static_cast<double>(x)), ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> tanh(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> tanh(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
-    return Templated_Float<Fp>(std::tanh(static_cast<double>(x)));
+    return Project<Templated_Float<Fp>>(std::tanh(static_cast<double>(x)), ps);
 }
 
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> asinh(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> asinh(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
-    return Templated_Float<Fp>(std::asinh(static_cast<double>(x)));
+    return Project<Templated_Float<Fp>>(std::asinh(static_cast<double>(x)), ps);
 }
 
 // acosh: x<1 -> invalid
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> acosh(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> acosh(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     if (xd < 1.0) LOF_INVALID(Fp);
-    return Templated_Float<Fp>(std::acosh(xd));
+    return Project<Templated_Float<Fp>>(std::acosh(xd), ps);
 }
 
 // atanh: |x|==1 -> divideByZero; |x|>1 -> invalid
 template <FloatingPointParams Fp>
-inline Templated_Float<Fp> atanh(Templated_Float<Fp> x) noexcept
+inline Templated_Float<Fp> atanh(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
 {
     const double xd = static_cast<double>(x);
     const double a  = std::fabs(xd);
     if (a > 1.0)       LOF_INVALID(Fp);
     else if (a == 1.0) LOF_DIVZERO(Fp);
-    return Templated_Float<Fp>(std::atanh(xd));
+    return Project<Templated_Float<Fp>>(std::atanh(xd), ps);
 }
 
 #undef LOF_INVALID
@@ -489,20 +489,25 @@ inline Templated_Float<Fp> atanh(Templated_Float<Fp> x) noexcept
 //9) FMA — computes (x*y)+z by rounding the operands up to double, evaluating
 // std::fma (one rounding), and rounding the result back into the output format.
 // §7.2(b,c,d): 0×∞ or ∞−∞ have no usefully definable result -> invalid operation.
+// Uses RTO trick from https://ens-lyon.hal.science/inria-00080427v2/document
 template <FloatingPointParams Fp1, FloatingPointParams Fp2, FloatingPointParams Fp3, FloatingPointParams Fp_out>
-inline Templated_Float<Fp_out> fma(
-    Templated_Float<Fp1> x, Templated_Float<Fp2> y, Templated_Float<Fp3> z) noexcept
+LOFLOAT_HOST LOFLOAT_INLINE Templated_Float<Fp_out> fma(
+    Templated_Float<Fp1> x, Templated_Float<Fp2> y, Templated_Float<Fp3> z, ProjSpec ps = {}) noexcept
 {
     const double xd = static_cast<double>(x);
     const double yd = static_cast<double>(y);
     const double zd = static_cast<double>(z);
-    const double res = std::fma(xd, yd, zd);
+    #pragma STDC FENV_ACCESS ON
+    std::feclearexcept(FE_INEXACT);
+    double res = std::fma(xd, yd, zd);
+    int inexact_flag = std::fetestexcept(FE_INEXACT) ? 1 : 0;
+    double rto_res = std::isfinite(res) ? std::bit_cast<double>(std::bit_cast<uint64_t>(res) | inexact_flag) : res;
 #ifdef ENABLE_EXCEPT
     // A NaN result from non-NaN operands means an invalid (0×∞ or ∞−∞) arose.
     if (std::isnan(res) && !std::isnan(xd) && !std::isnan(yd) && !std::isnan(zd))
         sci_raise<Fp_out>(lo_float_internal::LF_exception_flags::InvalidOperation);
 #endif
-    return Templated_Float<Fp_out>(res);
+    return Project<Templated_Float<Fp_out>>(rto_res, ps);
 }
 
 
@@ -544,7 +549,6 @@ inline std::pair<T, T> two_sum(T a, T b) noexcept
 //     );
 // }
 
-//11) FMA into fixed point
 
 
     template<FloatingPointParams Fp>

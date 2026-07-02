@@ -31,8 +31,22 @@ INCLUDE_PATH += -I$(LOFLOAT_ROOT)/src
 INCLUDE_PATH += -I$(LOFLOAT_ROOT)/test
 
 # BLIS (built submodule) — needed by the BLIS micro-kernel tests only.
-BLIS_INC  := -I$(LOFLOAT_ROOT)/third_party/blis/include/generic
-BLIS_LIB  := $(LOFLOAT_ROOT)/third_party/blis/lib/generic/libblis.a
+BLIS_DIR    := $(LOFLOAT_ROOT)/third_party/blis
+BLIS_CONFIG ?= generic
+BLIS_INC  := -I$(BLIS_DIR)/include/$(BLIS_CONFIG)
+BLIS_LIB  := $(BLIS_DIR)/lib/$(BLIS_CONFIG)/libblis.a
+NPROC     := $(shell nproc 2>/dev/null || echo 4)
+
+# Build BLIS on demand: if libblis.a is missing, configure + compile it
+# ($(BLIS_CONFIG) config). The BLIS test targets below depend on this, so
+# `make test_blis_lof` / `make all` work on a fresh checkout without a manual
+# `./configure && make` in third_party/blis.
+$(BLIS_LIB):
+	@echo "==> BLIS not built; configuring + building ($(BLIS_CONFIG))..."
+	cd $(BLIS_DIR) && ./configure $(BLIS_CONFIG) && $(MAKE) -j$(NPROC)
+
+.PHONY: blis
+blis: $(BLIS_LIB)
 
 
 # LLVM IR flags
@@ -78,39 +92,43 @@ endif
 
 # Add to ALL_EXEC conditionally
 ifeq ($(CUDA_AVAILABLE),yes)
-  ALL_EXEC += test_gemm_cuda test_lo_int_cuda
+	ifeq ($(USE_CUDA_VAR),1)
+  	ALL_EXEC += test_gemm_cuda test_lo_int_cuda
+	endif
 endif
 
 # Build rule
 ifeq ($(CUDA_AVAILABLE),yes)
-test_gemm_cuda: gemm_test.cu
-	$(NVCC) $(NVCCFLAGS) -w -Xcompiler -w -v -arch=$(CUDA_ARCH) $(INCLUDE_PATH) $< -o $@ -lcublas > build_log.txt 2>&1
+	ifeq ($(USE_CUDA_VAR),1)
+	test_gemm_cuda: gemm_test.cu
+		$(NVCC) $(NVCCFLAGS) -w -Xcompiler -w -v -arch=$(CUDA_ARCH) $(INCLUDE_PATH) $< -o $@ -lcublas > build_log.txt 2>&1
 
-test_round_to_odd: round_to_odd.cu
-	$(NVCC) $(NVCCFLAGS) -w -Xcompiler -w -v -arch=$(CUDA_ARCH) $(INCLUDE_PATH) $< -o $@ -lcublas > build_log.txt 2>&1
+	test_round_to_odd: round_to_odd.cu
+		$(NVCC) $(NVCCFLAGS) -w -Xcompiler -w -v -arch=$(CUDA_ARCH) $(INCLUDE_PATH) $< -o $@ -lcublas > build_log.txt 2>&1
 
-test_virtual_round_cuda: test_virtual_round.cu
-	$(NVCC) $(NVCCFLAGS) -DUSE_CUDA -w -Xcompiler -w -arch=$(CUDA_ARCH) $(INCLUDE_PATH) $< -o $@
+	test_virtual_round_cuda: test_virtual_round.cu
+		$(NVCC) $(NVCCFLAGS) -DUSE_CUDA -w -Xcompiler -w -arch=$(CUDA_ARCH) $(INCLUDE_PATH) $< -o $@
 
-test_virtual_mx_round_cuda: test_virtual_mx_round_cuda.cu
-	$(NVCC) $(NVCCFLAGS) -DUSE_CUDA -w -Xcompiler -w -arch=$(CUDA_ARCH) $(INCLUDE_PATH) $< -o $@
+	test_virtual_mx_round_cuda: test_virtual_mx_round_cuda.cu
+		$(NVCC) $(NVCCFLAGS) -DUSE_CUDA -w -Xcompiler -w -arch=$(CUDA_ARCH) $(INCLUDE_PATH) $< -o $@
 
-perf_mx_round_cuda: perf_mx_round_cuda.cu
-	$(NVCC) $(NVCCFLAGS) -DUSE_CUDA -w -Xcompiler -w -arch=$(CUDA_ARCH) $(INCLUDE_PATH) $< -o $@
+	perf_mx_round_cuda: perf_mx_round_cuda.cu
+		$(NVCC) $(NVCCFLAGS) -DUSE_CUDA -w -Xcompiler -w -arch=$(CUDA_ARCH) $(INCLUDE_PATH) $< -o $@
 
-test_conv2d_cuda: test_conv2d_cuda.cu
-	$(NVCC) $(NVCCFLAGS) -DUSE_CUDA -w -Xcompiler -w -arch=$(CUDA_ARCH) $(INCLUDE_PATH) $< -o $@
+	test_conv2d_cuda: test_conv2d_cuda.cu
+		$(NVCC) $(NVCCFLAGS) -DUSE_CUDA -w -Xcompiler -w -arch=$(CUDA_ARCH) $(INCLUDE_PATH) $< -o $@
 
-test_fixed_point_cuda: test_fixed_point_cuda.cu
-	$(NVCC) $(NVCCFLAGS) -DUSE_CUDA -w -Xcompiler -w -arch=$(CUDA_ARCH) $(INCLUDE_PATH) $< -o $@
+	test_fixed_point_cuda: test_fixed_point_cuda.cu
+		$(NVCC) $(NVCCFLAGS) -DUSE_CUDA -w -Xcompiler -w -arch=$(CUDA_ARCH) $(INCLUDE_PATH) $< -o $@
 
-# i_n is not LOFLOAT_HOST_DEVICE-annotated; --expt-relaxed-constexpr lets its
-# constexpr (host) operators run in device code.
-test_lo_int_cuda: test_lo_int_cuda.cu
-	$(NVCC) $(NVCCFLAGS) --expt-relaxed-constexpr -DUSE_CUDA -w -Xcompiler -w -arch=$(CUDA_ARCH) $(INCLUDE_PATH) $< -o $@
+	# i_n is not LOFLOAT_HOST_DEVICE-annotated; --expt-relaxed-constexpr lets its
+	# constexpr (host) operators run in device code.
+	test_lo_int_cuda: test_lo_int_cuda.cu
+		$(NVCC) $(NVCCFLAGS) --expt-relaxed-constexpr -DUSE_CUDA -w -Xcompiler -w -arch=$(CUDA_ARCH) $(INCLUDE_PATH) $< -o $@
 
-test_pack_cuda: test_pack_cuda.cu
-	$(NVCC) $(NVCCFLAGS) --expt-relaxed-constexpr -DUSE_CUDA -w -Xcompiler -w -arch=$(CUDA_ARCH) $(INCLUDE_PATH) $< -o $@
+	test_pack_cuda: test_pack_cuda.cu
+		$(NVCC) $(NVCCFLAGS) --expt-relaxed-constexpr -DUSE_CUDA -w -Xcompiler -w -arch=$(CUDA_ARCH) $(INCLUDE_PATH) $< -o $@
+	endif
 endif
 # Default / "all" option
 all: $(ALL_EXEC)
@@ -180,15 +198,15 @@ test_gemm: gemm_test.cpp
 test_pack: test_pack.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDE_PATH) $< -o $@
 
-# BLIS micro-kernel tests — link the built libblis.a.
-test_blis_lof: test_blis_lof.cpp
+# BLIS micro-kernel tests — link the built libblis.a (built on demand via $(BLIS_LIB)).
+test_blis_lof: test_blis_lof.cpp $(BLIS_LIB)
 	$(CXX) $(CXXFLAGS) $(INCLUDE_PATH) $(BLIS_INC) $< $(BLIS_LIB) -lpthread -lm -o $@
 
-test_blis_lof_accum: test_blis_lof_accum.cpp
+test_blis_lof_accum: test_blis_lof_accum.cpp $(BLIS_LIB)
 	$(CXX) $(CXXFLAGS) $(INCLUDE_PATH) $(BLIS_INC) $< $(BLIS_LIB) -lpthread -lm -o $@
 
 # Perf harness (not part of ALL_EXEC) — stock BLIS vs the custom-accum kernel.
-bench_blis_accum: bench_blis_accum.cpp
+bench_blis_accum: bench_blis_accum.cpp $(BLIS_LIB)
 	$(CXX) $(CXXFLAGS) $(INCLUDE_PATH) $(BLIS_INC) $< $(BLIS_LIB) -lpthread -lm -o $@
 
 

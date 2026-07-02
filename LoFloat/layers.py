@@ -2,6 +2,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn.grad  # noqa: F401  (conv2d_input/conv2d_weight for the Conv2d backward)
 import LoFloat as lof
 from LoFloat._custom_ops import register_format
 
@@ -56,7 +57,72 @@ class STEMXRound(torch.autograd.Function):
     def backward(ctx, grad_output):
         return grad_output, None, None, None, None
 
-    
+
+class _LoFGemm(torch.autograd.Function):
+    """Autograd wrapper around the low-precision GEMM.
+
+    Forward runs the quantized `lof.lof_gemm` kernel. Backward is the standard
+    full-precision matmul gradient (no lof kernel involved) — a straight-through
+    estimator for the accumulation rounding. The kernel rescales its output by
+    1/(scale_a*scale_b), so the backward divides by the same factor; combined
+    with the STE scaling on the operands this recovers the true fp gradient.
+    """
+    @staticmethod
+    def forward(ctx, A, B, accum_mant_bits, gemm_round_mode,
+                stochastic_rounding_bits, scale_a=1.0, scale_b=1.0):
+        ctx.save_for_backward(A, B)
+        ctx.scale = float(scale_a) * float(scale_b)
+        return lof.lof_gemm(A, B, accum_mant_bits, gemm_round_mode,
+                            stochastic_rounding_bits, scale_a, scale_b)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        A, B = ctx.saved_tensors
+        s = ctx.scale
+        grad_A = grad_B = None
+        if ctx.needs_input_grad[0]:
+            grad_A = grad_output.matmul(B.transpose(-1, -2)) / s
+        if ctx.needs_input_grad[1]:
+            grad_B = A.transpose(-1, -2).matmul(grad_output) / s
+        return grad_A, grad_B, None, None, None, None, None
+
+
+class _LoFConv2dFn(torch.autograd.Function):
+    """Autograd wrapper around the low-precision (CUTLASS) Conv2d.
+
+    Forward runs the quantized `lof.lof_conv2d` kernel (groups=1). Backward uses
+    PyTorch's standard conv2d input/weight gradients — no lof kernel — as a
+    straight-through estimator, dividing by the kernel's 1/(scale_a*scale_b)
+    output rescale so the composed gradient matches the fp conv.
+    """
+    @staticmethod
+    def forward(ctx, x, w, pad_h, pad_w, stride_h, stride_w, dil_h, dil_w,
+                accum_mant_bits, gemm_round_mode, stochastic_rounding_bits,
+                scale_a=1.0, scale_b=1.0):
+        ctx.save_for_backward(x, w)
+        ctx.cfg = (stride_h, stride_w, pad_h, pad_w, dil_h, dil_w)
+        ctx.scale = float(scale_a) * float(scale_b)
+        return lof.lof_conv2d(x, w, pad_h, pad_w, stride_h, stride_w,
+                              dil_h, dil_w, accum_mant_bits, gemm_round_mode,
+                              stochastic_rounding_bits, scale_a, scale_b)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        x, w = ctx.saved_tensors
+        sh, sw, ph, pw, dh, dw = ctx.cfg
+        s = ctx.scale
+        grad_x = grad_w = None
+        if ctx.needs_input_grad[0]:
+            grad_x = torch.nn.grad.conv2d_input(
+                x.shape, w, grad_output, stride=(sh, sw),
+                padding=(ph, pw), dilation=(dh, dw), groups=1) / s
+        if ctx.needs_input_grad[1]:
+            grad_w = torch.nn.grad.conv2d_weight(
+                x, w.shape, grad_output, stride=(sh, sw),
+                padding=(ph, pw), dilation=(dh, dw), groups=1) / s
+        return (grad_x, grad_w) + (None,) * 11
+
+
 class LoF_Quantize(nn.Module):
     """Quantize a tensor to a low-precision format.
 
@@ -89,10 +155,8 @@ class LoF_Quantize(nn.Module):
 
     def forward(self, x):
         if self.scaling == "mx":
-            if x.shape[-1] % self.mx_block_size != 0:
-                raise ValueError(
-                    f"mx scaling needs the last dim ({x.shape[-1]}) divisible by "
-                    f"mx_block_size ({self.mx_block_size})")
+            # virtual_mx_round handles a partial trailing block, so the last dim
+            # need not be divisible by mx_block_size.
             return STEMXRound.apply(x, self.params, self.scale_format,
                                     self.mx_block_size, self.rounding_mode)
         return STERound.apply(x, self.params, self.rounding_mode)
@@ -127,7 +191,7 @@ def _lof_gemm_2d(A, B, accum_mant_bits, gemm_round_mode, stochastic_rounding_bit
     scales used for scale-then-quantize on A and B to recover the original domain.
     """
     if A.dim() == 2 and B.dim() == 2:
-        return lof.lof_gemm(
+        return _LoFGemm.apply(
             A.contiguous(), B.contiguous(),
             accum_mant_bits, gemm_round_mode, stochastic_rounding_bits,
             scale_a, scale_b,
@@ -140,7 +204,7 @@ def _lof_gemm_2d(A, B, accum_mant_bits, gemm_round_mode, stochastic_rounding_bit
     B_flat = B.reshape(-1, K, N).contiguous()
 
     out = torch.stack([
-        lof.lof_gemm(
+        _LoFGemm.apply(
             A_flat[i], B_flat[i],         # already contiguous, indexing preserves that
             accum_mant_bits, gemm_round_mode, stochastic_rounding_bits,
             scale_a, scale_b,
@@ -159,9 +223,9 @@ def _lof_linear(x, weight, bias, accum_mant_bits, gemm_round_mode, stochastic_ro
     K = x.shape[-1]
     x_2d = x.reshape(-1, K).contiguous()            # (B, K) RowMajor
     wt   = weight.t().contiguous()                   # (K, N) RowMajor (actual copy)
-    out = lof.lof_gemm(x_2d, wt,
-                       accum_mant_bits, gemm_round_mode, stochastic_rounding_bits,
-                       scale_a, scale_b)
+    out = _LoFGemm.apply(x_2d, wt,
+                         accum_mant_bits, gemm_round_mode, stochastic_rounding_bits,
+                         scale_a, scale_b)
     out = out.reshape(*leading, weight.shape[0])     # (..., N)
     if bias is not None:
         out = out + bias
@@ -258,10 +322,8 @@ class LoF_Linear(nn.Module):
         self.scaling = scaling
         self.mx_block_size = mx_block_size
         self.scale_format = scale_format if scale_format is not None else lof.create_e8m0_params()
-        if scaling == "mx" and in_features % mx_block_size != 0:
-            raise ValueError(
-                f"mx scaling needs in_features ({in_features}) divisible by "
-                f"mx_block_size ({mx_block_size})")
+        # NB: in_features need not be divisible by mx_block_size — virtual_mx_round
+        # handles a partial trailing block.
 
         self.accum_mant_bits = accum_mant_bits
         self.gemm_round_mode = gemm_round_mode if gemm_round_mode is not None else lof.RoundingMode.RoundToNearestEven
@@ -355,8 +417,6 @@ class LoF_Linear(nn.Module):
         self._act_fid = register_format(self.act_params)
         self._weight_fid = register_format(self.weight_params)
         self._bias_fid = register_format(self.bias_params)
-        self._round_mode_int = int(self.rounding_mode)
-        self._gemm_round_mode_int = int(self.gemm_round_mode)
 
     def forward(self, x):
         # Optional Hadamard rotation of activations along the in_features axis.
@@ -378,13 +438,13 @@ class LoF_Linear(nn.Module):
         else:
             # Scale-then-quantize is fused inside the CUDA round kernel — no
             # intermediate scaled tensor materialized on GPU.
-            x_q = STERound.apply(x, self._act_fid, self._round_mode_int, self.act_scale_factor)
-            w_q = STERound.apply(self.weight, self._weight_fid, self._round_mode_int, self.w_scale_factor)
+            x_q = STERound.apply(x, self._act_fid, self.rounding_mode, self.act_scale_factor)
+            w_q = STERound.apply(self.weight, self._weight_fid, self.rounding_mode, self.w_scale_factor)
 
             # GEMM divides output by (act_scale * w_scale) to rescale back to the
             # original (unscaled) domain.
             out = _lof_linear(x_q, w_q, None,
-                              self.accum_mant_bits, self._gemm_round_mode_int,
+                              self.accum_mant_bits, self.gemm_round_mode,
                               self.stochastic_rounding_bits,
                               scale_a=float(self.act_scale_factor),
                               scale_b=float(self.w_scale_factor))
@@ -392,7 +452,7 @@ class LoF_Linear(nn.Module):
         if self.bias is not None:
             # Quantize bias in its scaled domain, then descale to match the
             # rescaled GEMM output.
-            b_q = STERound.apply(self.bias, self._bias_fid, self._round_mode_int, self.b_scale_factor)
+            b_q = STERound.apply(self.bias, self._bias_fid, self.rounding_mode, self.b_scale_factor)
             if self.b_scale_factor != 1.0:
                 b_q = b_q / self.b_scale_factor
             out = out + b_q
@@ -508,14 +568,10 @@ class LoF_Conv2d(nn.Module):
         self.mx_block_size = mx_block_size
         self.scale_format = scale_format if scale_format is not None else lof.create_e8m0_params()
         if scaling == "mx":
-            kH, kW = self.kernel_size
-            K = (in_channels // groups) * kH * kW
             if groups != 1:
                 raise NotImplementedError("scaling='mx' for LoF_Conv2d currently supports groups=1 only")
-            if K % mx_block_size != 0:
-                raise ValueError(
-                    f"mx scaling needs the im2col K=(C_in/groups)*kH*kW={K} divisible by "
-                    f"mx_block_size ({mx_block_size})")
+            # NB: the im2col reduction K need not be divisible by mx_block_size —
+            # virtual_mx_round handles a partial trailing block.
 
         # Hadamard rotation along the C_in axis (per spatial position) before im2col.
         self.hadamard_transform = hadamard_transform
@@ -641,7 +697,7 @@ class LoF_Conv2d(nn.Module):
             x_q = STERound.apply(x, self.act_params, self.rounding_mode, self.act_scale_factor)
             w_q = STERound.apply(self.weight, self.weight_params, self.rounding_mode, self.w_scale_factor)
 
-            out = lof.lof_conv2d(
+            out = _LoFConv2dFn.apply(
                 x_q, w_q,
                 self.padding[0], self.padding[1],
                 self.stride[0], self.stride[1],
@@ -1180,10 +1236,8 @@ class LoF_MultiHeadAttention(nn.Module):
         self.scaling = scaling
         self.mx_block_size = mx_block_size
         self.scale_format = scale_format if scale_format is not None else lof.create_e8m0_params()
-        if scaling == "mx" and embed_dim % mx_block_size != 0:
-            raise ValueError(
-                f"mx scaling needs embed_dim ({embed_dim}) divisible by "
-                f"mx_block_size ({mx_block_size})")
+        # NB: embed_dim need not be divisible by mx_block_size — virtual_mx_round
+        # handles a partial trailing block.
 
         # lof_gemm parameters
         self.accum_mant_bits = accum_mant_bits
@@ -1286,11 +1340,9 @@ class LoF_MultiHeadAttention(nn.Module):
             return tensor
         if self.scaling == "mx":
             # MX along the last axis (= E, the projection contraction). Applies to
-            # q/k/v activations and projection weights/biases alike.
-            if tensor.shape[-1] % self.mx_block_size != 0:
-                raise ValueError(
-                    f"mx scaling needs the last dim ({tensor.shape[-1]}) divisible by "
-                    f"mx_block_size ({self.mx_block_size})")
+            # q/k/v activations and projection weights/biases alike. virtual_mx_round
+            # handles a partial trailing block, so E need not be divisible by
+            # mx_block_size.
             return STEMXRound.apply(tensor, params, self.scale_format,
                                     self.mx_block_size, self.rounding_mode)
         return STERound.apply(tensor, params, self.rounding_mode)

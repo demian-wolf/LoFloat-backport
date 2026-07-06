@@ -7,7 +7,7 @@ using namespace std;
 using namespace lo_float;
 
 
-namespace Lo_Gemm {
+namespace lo_float {
 
     template<Float FP, int block_size>
     struct int_accum_size {

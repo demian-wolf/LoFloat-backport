@@ -9,7 +9,6 @@
 
 
 using namespace lo_float;
-using namespace Lo_Gemm;
 
 #define LOOP_CAST(out_type) \
         for (int64_t i = 0; i < tensor.numel(); ++i) {  \

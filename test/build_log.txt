@@ -1,0 +1,24 @@
+#$ _NVVM_BRANCH_=nvvm
+#$ _SPACE_= 
+#$ _CUDART_=cudart
+#$ _HERE_=/user-environment/linux-neoverse_v2/cuda-12.9.0-xoa4pgkibqtszlbqya7btx255nzg4auq/bin
+#$ _THERE_=/user-environment/linux-neoverse_v2/cuda-12.9.0-xoa4pgkibqtszlbqya7btx255nzg4auq/bin
+#$ _TARGET_SIZE_=
+#$ _TARGET_DIR_=
+#$ _TARGET_DIR_=targets/sbsa-linux
+#$ TOP=/user-environment/linux-neoverse_v2/cuda-12.9.0-xoa4pgkibqtszlbqya7btx255nzg4auq/bin/..
+#$ CICC_PATH=/user-environment/linux-neoverse_v2/cuda-12.9.0-xoa4pgkibqtszlbqya7btx255nzg4auq/bin/../nvvm/bin
+#$ NVVMIR_LIBRARY_DIR=/user-environment/linux-neoverse_v2/cuda-12.9.0-xoa4pgkibqtszlbqya7btx255nzg4auq/bin/../nvvm/libdevice
+#$ LD_LIBRARY_PATH=/user-environment/linux-neoverse_v2/cuda-12.9.0-xoa4pgkibqtszlbqya7btx255nzg4auq/bin/../lib:/user-environment/linux-neoverse_v2/python-3.13.5-qapsajolz6vvo5n7nsr2gwg544vif6b6/lib:/user-environment/linux-neoverse_v2/cuda-12.9.0-xoa4pgkibqtszlbqya7btx255nzg4auq/lib64:/user-environment/linux-neoverse_v2/gcc-14.2.0-sryzh4kh2l6a5sfawxezxojbc3veopge/lib64:/user-environment/linux-neoverse_v2/gcc-14.2.0-sryzh4kh2l6a5sfawxezxojbc3veopge/lib:/users/skulkarn/bin/cpfloat/lib::
+#$ PATH=/user-environment/linux-neoverse_v2/cuda-12.9.0-xoa4pgkibqtszlbqya7btx255nzg4auq/bin/../nvvm/bin:/user-environment/linux-neoverse_v2/cuda-12.9.0-xoa4pgkibqtszlbqya7btx255nzg4auq/bin:/user-environment/linux-neoverse_v2/python-3.13.5-qapsajolz6vvo5n7nsr2gwg544vif6b6/bin:/user-environment/linux-neoverse_v2/cuda-12.9.0-xoa4pgkibqtszlbqya7btx255nzg4auq/bin:/user-environment/linux-neoverse_v2/cmake-3.31.8-wxfporha4k2dk5nqmf4etdf2ody23l2a/bin:/user-environment/linux-neoverse_v2/gcc-14.2.0-sryzh4kh2l6a5sfawxezxojbc3veopge/bin:/users/skulkarn/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/users/skulkarn/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli:/users/skulkarn/.vscode-server/cli/servers/Stable-07ff9d6178ede9a1bd12ad3399074d726ebe6e43/server/bin/remote-cli:/users/skulkarn/.local/bin:/users/skulkarn/bin:/usr/local/bin:/usr/bin:/bin:/usr/lib/mit/bin
+#$ INCLUDES="-I/user-environment/linux-neoverse_v2/cuda-12.9.0-xoa4pgkibqtszlbqya7btx255nzg4auq/bin/../targets/sbsa-linux/include"  
+#$ LIBRARIES=  "-L/user-environment/linux-neoverse_v2/cuda-12.9.0-xoa4pgkibqtszlbqya7btx255nzg4auq/bin/../targets/sbsa-linux/lib/stubs" "-L/user-environment/linux-neoverse_v2/cuda-12.9.0-xoa4pgkibqtszlbqya7btx255nzg4auq/bin/../targets/sbsa-linux/lib"
+#$ CUDAFE_FLAGS=
+#$ PTXAS_FLAGS=
+#$ gcc -std=c++20 -D__CUDA_ARCH_LIST__=900 -D__NV_LEGACY_LAUNCH -E -x c++ -D__CUDACC__ -D__NVCC__  -w -O3 -w -I"/users/skulkarn/bin/LoFloat" -I"/users/skulkarn/bin/LoFloat/src" -I"/users/skulkarn/bin/LoFloat/test" -I"/users/skulkarn/bin/LoFloat/third_party/xsimd/include" "-I/user-environment/linux-neoverse_v2/cuda-12.9.0-xoa4pgkibqtszlbqya7btx255nzg4auq/bin/../targets/sbsa-linux/include"    -D__CUDACC_VER_MAJOR__=12 -D__CUDACC_VER_MINOR__=9 -D__CUDACC_VER_BUILD__=41 -D__CUDA_API_VER_MAJOR__=12 -D__CUDA_API_VER_MINOR__=9 -D__NVCC_DIAG_PRAGMA_SUPPORT__=1 -D__CUDACC_DEVICE_ATOMIC_BUILTINS__=1 -include "cuda_runtime.h" "gemm_test.cu" -o "/tmp/tmpxft_00047092_00000000-5_gemm_test.cpp4.ii" 
+In file included from gemm_test.cu:29:
+/users/skulkarn/bin/LoFloat/src/lo_float.h:31:10: fatal error: c10/util/Half.h: No such file or directory
+   31 | #include <c10/util/Half.h>
+      |          ^~~~~~~~~~~~~~~~~
+compilation terminated.
+# --error 0x1 --

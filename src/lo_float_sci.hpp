@@ -551,6 +551,364 @@ inline std::pair<T, T> two_sum(T a, T b) noexcept
 
 
 
+// ============================================================================
+//  IEEE P3109 operations.  Scalar ops only; block operations (§5) and FAA
+//  (§4.10.7) are intentionally not implemented here.  Exception flags are
+//  ignored.  The P3109 number model has a single NaN and no negative zero.
+// ============================================================================
+
+// ---- §4.13 classification predicates + §4.13.1 Class ----
+
+// §4.13 IsZero: NaN/±inf are not zero; otherwise the value equals zero.
+template <FloatingPointParams Fp>
+inline bool IsZero(Templated_Float<Fp> x) noexcept {
+    if (isnan(x) || isinf(x)) return false;
+    return static_cast<double>(x) == 0.0;
+}
+
+// §4.13 IsOne: NaN/±inf are not one; otherwise the value equals one.
+template <FloatingPointParams Fp>
+inline bool IsOne(Templated_Float<Fp> x) noexcept {
+    if (isnan(x) || isinf(x)) return false;
+    return static_cast<double>(x) == 1.0;
+}
+
+// §4.13 IsNaN.
+template <FloatingPointParams Fp>
+inline bool IsNaN(Templated_Float<Fp> x) noexcept {
+    return isnan(x);
+}
+
+// §4.13 IsInfinite.
+template <FloatingPointParams Fp>
+inline bool IsInfinite(Templated_Float<Fp> x) noexcept {
+    return isinf(x);
+}
+
+// §4.13 IsFinite: neither infinite nor NaN.
+template <FloatingPointParams Fp>
+inline bool IsFinite(Templated_Float<Fp> x) noexcept {
+    return !IsInfinite<Fp>(x) && !IsNaN<Fp>(x);
+}
+
+// §4.13 IsSignMinus: NaN and +inf false; -inf true; no negative zero, so zero is false.
+template <FloatingPointParams Fp>
+inline bool IsSignMinus(Templated_Float<Fp> x) noexcept {
+    if (isnan(x)) return false;
+    return x < Templated_Float<Fp>{};   // only -inf and negatives are < 0
+}
+
+// §4.13 IsNormal: finite nonzero with magnitude at least the smallest normal.
+template <FloatingPointParams Fp>
+inline bool IsNormal(Templated_Float<Fp> x) noexcept {
+    if (IsZero<Fp>(x) || IsInfinite<Fp>(x) || IsNaN<Fp>(x)) return false;
+    return abs(x) >= std::numeric_limits<Templated_Float<Fp>>::min();
+}
+
+// §4.13 IsSubnormal: finite nonzero with magnitude below the smallest normal.
+template <FloatingPointParams Fp>
+inline bool IsSubnormal(Templated_Float<Fp> x) noexcept {
+    if (IsZero<Fp>(x) || IsInfinite<Fp>(x) || IsNaN<Fp>(x)) return false;
+    return !IsNormal<Fp>(x);
+}
+
+// §4.13.1 the eight disjoint classes.
+enum Class_Enum : uint8_t {
+    ClsNaN,
+    ClsNegativeInfinity,
+    ClsNegativeNormal,
+    ClsNegativeSubnormal,
+    ClsZero,
+    ClsPositiveSubnormal,
+    ClsPositiveNormal,
+    ClsPositiveInfinity
+};
+
+// §4.13.1 Class: map x to exactly one of the eight disjoint classes.
+template <FloatingPointParams Fp>
+inline Class_Enum Class(Templated_Float<Fp> x) noexcept {
+    if (IsNaN<Fp>(x)) return ClsNaN;
+    if (IsInfinite<Fp>(x)) return IsSignMinus<Fp>(x) ? ClsNegativeInfinity : ClsPositiveInfinity;
+    if (IsZero<Fp>(x)) return ClsZero;
+    if (IsSignMinus<Fp>(x))
+        return IsSubnormal<Fp>(x) ? ClsNegativeSubnormal : ClsNegativeNormal;
+    return IsSubnormal<Fp>(x) ? ClsPositiveSubnormal : ClsPositiveNormal;
+}
+
+// ---- §4.11 extrema family ----
+
+// §4.11 Minimum — NaN-propagating; tie returns second operand y.
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> Minimum(Templated_Float<Fp> x, Templated_Float<Fp> y) noexcept
+{
+    if (isnan(x) || isnan(y)) return std::numeric_limits<Templated_Float<Fp>>::quiet_NaN();
+    return (x < y) ? x : y;   // tie (x==y) -> y
+}
+
+// §4.11 Maximum — NaN-propagating; tie returns first operand x.
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> Maximum(Templated_Float<Fp> x, Templated_Float<Fp> y) noexcept
+{
+    if (isnan(x) || isnan(y)) return std::numeric_limits<Templated_Float<Fp>>::quiet_NaN();
+    return (x < y) ? y : x;   // tie (x==y) -> x
+}
+
+// §4.11 MinimumNumber — a lone NaN is ignored; (NaN,NaN)->NaN.
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> MinimumNumber(Templated_Float<Fp> x, Templated_Float<Fp> y) noexcept
+{
+    if (isnan(x)) return isnan(y) ? std::numeric_limits<Templated_Float<Fp>>::quiet_NaN() : y;
+    if (isnan(y)) return x;
+    return Minimum<Fp>(x, y);
+}
+
+// §4.11 MaximumNumber — a lone NaN is ignored; (NaN,NaN)->NaN.
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> MaximumNumber(Templated_Float<Fp> x, Templated_Float<Fp> y) noexcept
+{
+    if (isnan(x)) return isnan(y) ? std::numeric_limits<Templated_Float<Fp>>::quiet_NaN() : y;
+    if (isnan(y)) return x;
+    return Maximum<Fp>(x, y);
+}
+
+// §4.11 MinimumMagnitude — NaN-propagating; compare by |x|, ties broken by signed value.
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> MinimumMagnitude(Templated_Float<Fp> x, Templated_Float<Fp> y) noexcept
+{
+    if (isnan(x) || isnan(y)) return std::numeric_limits<Templated_Float<Fp>>::quiet_NaN();
+    const Templated_Float<Fp> ax = abs(x), ay = abs(y);
+    if (ax < ay) return x;
+    if (ay < ax) return y;
+    return (x < y) ? x : y;   // magnitude tie -> lesser value
+}
+
+// §4.11 MaximumMagnitude — NaN-propagating; compare by |x|, ties broken by signed value.
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> MaximumMagnitude(Templated_Float<Fp> x, Templated_Float<Fp> y) noexcept
+{
+    if (isnan(x) || isnan(y)) return std::numeric_limits<Templated_Float<Fp>>::quiet_NaN();
+    const Templated_Float<Fp> ax = abs(x), ay = abs(y);
+    if (ax > ay) return x;
+    if (ay > ax) return y;
+    return (x < y) ? y : x;   // magnitude tie -> greater value
+}
+
+// §4.11 MinimumMagnitudeNumber — a lone NaN is ignored; (NaN,NaN)->NaN.
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> MinimumMagnitudeNumber(Templated_Float<Fp> x, Templated_Float<Fp> y) noexcept
+{
+    if (isnan(x)) return isnan(y) ? std::numeric_limits<Templated_Float<Fp>>::quiet_NaN() : y;
+    if (isnan(y)) return x;
+    return MinimumMagnitude<Fp>(x, y);
+}
+
+// §4.11 MaximumMagnitudeNumber — a lone NaN is ignored; (NaN,NaN)->NaN.
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> MaximumMagnitudeNumber(Templated_Float<Fp> x, Templated_Float<Fp> y) noexcept
+{
+    if (isnan(x)) return isnan(y) ? std::numeric_limits<Templated_Float<Fp>>::quiet_NaN() : y;
+    if (isnan(y)) return x;
+    return MaximumMagnitude<Fp>(x, y);
+}
+
+// §4.11.3 MinimumFinite — NaN-ignoring, identical to MinimumNumber (±inf passed through).
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> MinimumFinite(Templated_Float<Fp> x, Templated_Float<Fp> y) noexcept
+{
+    return MinimumNumber<Fp>(x, y);
+}
+
+// §4.11.3 MaximumFinite — NaN-ignoring, identical to MaximumNumber (±inf passed through).
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> MaximumFinite(Templated_Float<Fp> x, Templated_Float<Fp> y) noexcept
+{
+    return MaximumNumber<Fp>(x, y);
+}
+
+// §4.11.4 Clamp — constrain x to [lo,hi]; any-NaN or inverted bounds (lo>hi) -> NaN.
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> Clamp(Templated_Float<Fp> x, Templated_Float<Fp> lo, Templated_Float<Fp> hi) noexcept
+{
+    if (isnan(x) || isnan(lo) || isnan(hi)) return std::numeric_limits<Templated_Float<Fp>>::quiet_NaN();
+    if (lo > hi) return std::numeric_limits<Templated_Float<Fp>>::quiet_NaN();
+    return x < lo ? lo : (x > hi ? hi : x);
+}
+
+// ---- §4.10 misc scalar arithmetic ----
+
+// §4.10.8 Recip = 1/x: NaN->NaN; 0->NaN (P3109 divide-by-zero); ±inf->0; else 1/x.
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> Recip(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
+{
+    const double xd = static_cast<double>(x);
+    if (isnan(x))  return std::numeric_limits<Templated_Float<Fp>>::quiet_NaN();
+    if (xd == 0.0) return std::numeric_limits<Templated_Float<Fp>>::quiet_NaN();
+    return Project<Templated_Float<Fp>>(1.0 / xd, ps);   // 1.0/±inf == 0.0 naturally
+}
+
+// §4.10.2 CopySign — magnitude of x with sign of y; NaN in either operand -> NaN; y==0 => positive.
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> CopySign(Templated_Float<Fp> x, Templated_Float<Fp> y, ProjSpec ps = ProjSpec{}) noexcept
+{
+    if (isnan(x) || isnan(y)) return std::numeric_limits<Templated_Float<Fp>>::quiet_NaN();
+    const double mag = static_cast<double>(abs(x));   // abs(±inf) = +inf
+    const bool   neg = static_cast<double>(y) < 0.0;  // y==0 -> positive
+    return Project<Templated_Float<Fp>>(neg ? -mag : mag, ps);
+}
+
+// §4.10.13 Softplus = log(1+e^x): NaN->NaN; +inf->+inf; -inf->0 (stable form handles the limits).
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> Softplus(Templated_Float<Fp> x, ProjSpec ps = ProjSpec{}) noexcept
+{
+    const double xd = static_cast<double>(x);
+    const double r  = xd > 0.0 ? xd + std::log1p(std::exp(-xd)) : std::log1p(std::exp(xd));
+    return Project<Templated_Float<Fp>>(r, ps);
+}
+
+// ---- §4.12 ordering ----
+
+// §4.12.1 TotalOrder — single NaN sorts below everything; otherwise x <= y.
+template <FloatingPointParams Fp>
+inline bool TotalOrder(Templated_Float<Fp> x, Templated_Float<Fp> y) noexcept
+{
+    if (isnan(x)) return true;
+    if (isnan(y)) return false;
+    return x <= y;
+}
+
+// ---- §4.16 next-value operations ----
+
+// SmallestNegative = -MinPositive = value -denorm_min (signed formats only).
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> SmallestNegative() noexcept
+{
+    using L = std::numeric_limits<Templated_Float<Fp>>;
+    using R = decltype(L::denorm_min().rep());
+    return Templated_Float<Fp>::FromRep(L::denorm_min().rep() | static_cast<R>(R{1} << (Fp.bitwidth - 1)));
+}
+
+// §4.16 NextGreaterThan — least value comparing greater than x, or NaN if none.
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> NextGreaterThan(Templated_Float<Fp> x) noexcept
+{
+    const bool signed_fmt = (Fp.is_signed == Signedness::Signed);
+    const bool extended   = (Fp.OV_behavior != Inf_Behaviors::Saturating);
+    const bool neg        = (static_cast<double>(x) < 0.0);   // false for +0/+inf; true for negatives/-inf
+    using L = std::numeric_limits<Templated_Float<Fp>>;
+    auto r  = x.rep();
+    using R = decltype(r);
+
+    if (isnan(x)) return L::quiet_NaN();                                    // NaN
+    if (extended && isinf(x) && !neg) return L::quiet_NaN();                // +inf -> none
+    if (x == L::max()) return extended ? L::infinity() : L::quiet_NaN();    // MaxFinite -> +inf / NaN
+    if (signed_fmt && extended && isinf(x)) return L::lowest();             // -inf -> MinFinite
+    if (signed_fmt) {                                                       // SmallestNegative -> 0
+        if (x == SmallestNegative<Fp>()) return Templated_Float<Fp>::FromRep(static_cast<R>(0));
+    }
+    return Templated_Float<Fp>::FromRep(static_cast<R>((signed_fmt && neg) ? (r - 1) : (r + 1)));
+}
+
+// §4.16 NextLessThan — greatest value comparing less than x, or NaN if none.
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> NextLessThan(Templated_Float<Fp> x) noexcept
+{
+    const bool signed_fmt = (Fp.is_signed == Signedness::Signed);
+    const bool extended   = (Fp.OV_behavior != Inf_Behaviors::Saturating);
+    const bool neg        = (static_cast<double>(x) < 0.0);   // false for +0/+inf; true for negatives/-inf
+    using L = std::numeric_limits<Templated_Float<Fp>>;
+    auto r  = x.rep();
+    using R = decltype(r);
+
+    if (isnan(x)) return L::quiet_NaN();                                        // NaN
+    if (signed_fmt && extended && isinf(x) && neg) return L::quiet_NaN();       // -inf -> none
+    if (extended && isinf(x) && !neg) return L::max();                          // +inf -> MaxFinite
+    if (x == L::lowest())                                                       // MinFinite (or unsigned 0)
+        return (signed_fmt && extended) ? (-L::infinity()) : L::quiet_NaN();    //   signed Extended -> -inf else NaN
+    if (signed_fmt && x == Templated_Float<Fp>::FromRep(static_cast<R>(0)))     // 0 -> SmallestNegative
+        return SmallestNegative<Fp>();
+    return Templated_Float<Fp>::FromRep(static_cast<R>((signed_fmt && neg) ? (r + 1) : (r - 1)));
+}
+
+// ---- §4.14 format-level queries (callable as NameOf(x) or NameOf<Fp>()) ----
+
+// §4.14 storage width in bits (K).
+template <FloatingPointParams Fp>
+inline int BitwidthOf(Templated_Float<Fp> = {}) noexcept {
+    return Fp.bitwidth;
+}
+
+// §4.14 precision P = trailing significand bits + 1.
+template <FloatingPointParams Fp>
+inline int PrecisionOf(Templated_Float<Fp> = {}) noexcept {
+    return Fp.mantissa_bits + 1;
+}
+
+// §4.14 trailing significand field width (P-1).
+template <FloatingPointParams Fp>
+inline int TrailingSignificandBitwidthOf(Templated_Float<Fp> = {}) noexcept {
+    return Fp.mantissa_bits;
+}
+
+// §4.14 exponent field width = K - (P-1) - signbit.
+template <FloatingPointParams Fp>
+inline int ExponentBitwidthOf(Templated_Float<Fp> = {}) noexcept {
+    return Fp.bitwidth - Fp.mantissa_bits - (Fp.is_signed == Signedness::Signed ? 1 : 0);
+}
+
+// §4.14 exponent bias.
+template <FloatingPointParams Fp>
+inline int ExponentBiasOf(Templated_Float<Fp> = {}) noexcept {
+    return Fp.bias;
+}
+
+// §4.14 signedness of the format.
+template <FloatingPointParams Fp>
+inline Signedness SignednessOf(Templated_Float<Fp> = {}) noexcept {
+    return Fp.is_signed;
+}
+
+// §4.14 domain: Inf_Behaviors::Extended = ±inf in the datum set; Saturating = Finite domain.
+template <FloatingPointParams Fp>
+inline Inf_Behaviors DomainOf(Templated_Float<Fp> = {}) noexcept {
+    return Fp.OV_behavior;
+}
+
+// §4.14 largest finite value.
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> MaxFiniteOf(Templated_Float<Fp> = {}) noexcept {
+    return std::numeric_limits<Templated_Float<Fp>>::max();
+}
+
+// §4.14 most-negative finite value (0 for unsigned formats).
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> MinFiniteOf(Templated_Float<Fp> = {}) noexcept {
+    return std::numeric_limits<Templated_Float<Fp>>::lowest();
+}
+
+// §4.14 smallest positive value (smallest subnormal).
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> MinPositiveOf(Templated_Float<Fp> = {}) noexcept {
+    return std::numeric_limits<Templated_Float<Fp>>::denorm_min();
+}
+
+// §4.14 smallest positive normal value.
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> MinNormalOf(Templated_Float<Fp> = {}) noexcept {
+    return std::numeric_limits<Templated_Float<Fp>>::min();
+}
+
+// §4.14 largest subnormal (exp field 0, all mantissa bits set), or NaN if no subnormals.
+template <FloatingPointParams Fp>
+inline Templated_Float<Fp> MaxSubnormalOf(Templated_Float<Fp> = {}) noexcept {
+    if constexpr (Fp.mantissa_bits == 0) {
+        return std::numeric_limits<Templated_Float<Fp>>::quiet_NaN();
+    } else {
+        using RepT = decltype(std::numeric_limits<Templated_Float<Fp>>::denorm_min().rep());
+        return Templated_Float<Fp>::FromRep(static_cast<RepT>((RepT{1} << Fp.mantissa_bits) - RepT{1}));
+    }
+}
+
+
     template<FloatingPointParams Fp>
     inline constexpr auto func_get_mantissa_bits(Templated_Float<Fp>& x) {
         return x.rep() & ((1 << get_mantissa_bits_v<Templated_Float<Fp>>) - 1);

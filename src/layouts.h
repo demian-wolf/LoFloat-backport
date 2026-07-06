@@ -18,10 +18,15 @@ enum Layout : uint8_t {
     RowMajor = 1
 };
 
+// Controls which direction a shared MX scale's block of private elements runs in a 2D
+// MX_Matrix: byColumn groups r contiguous rows within one column; byRow groups r contiguous
+// columns within one row; byTile groups an explicit tile_rows x tile_cols 2D block (see
+// MX_Matrix's tile_rows/tile_cols). Block membership is always computed from the LOGICAL
+// (row, col) position in the m x n grid, independent of the physical leading dimension `ld`.
 enum MX_Layout : uint8_t {
     byColumn = 0,
     byRow = 1,
-    byBlock = 2
+    byTile = 2
 };
 
 enum Uplo : uint8_t {

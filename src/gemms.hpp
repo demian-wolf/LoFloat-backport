@@ -8,7 +8,7 @@
 #endif
 
 using namespace lo_float;
-namespace Lo_Gemm {
+namespace lo_float {
 
 #ifdef _OPENMP
 // Thread management functions
@@ -870,4 +870,4 @@ private:
     }
 };
 
-} // namespace Lo_Gemm
+} // namespace lo_float

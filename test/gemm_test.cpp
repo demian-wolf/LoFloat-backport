@@ -7,7 +7,6 @@
 // #include <gperftools/profiler.h>
 
 using namespace lo_float;
-using namespace Lo_Gemm;
 
 template<typename T, typename idx, Layout L, typename T2>
 void naive_gemm(const Matrix<T, idx, L>& A, const Matrix<T, idx, L>& B, Matrix<T2, idx, L>& C) {

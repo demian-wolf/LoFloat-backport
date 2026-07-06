@@ -22,7 +22,6 @@
 #include <limits>
 
 using namespace lo_float;
-using namespace Lo_Gemm;
 
 static bool g_verbose = false;
 

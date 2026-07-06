@@ -1201,7 +1201,11 @@ LOFLOAT_HOST_DEVICE LOFLOAT_FORCEINLINE Bits RoundTiesToAway(Bits bits, Roundoff
 
 
 template <typename Bits, typename Roundoff>
-inline Bits RoundToOdd(Bits bits, Roundoff roundoff)
+inline Bits RoundToOdd(Bits bits, Roundoff roundoff 
+    #ifdef USE_FENV_INEXACT
+    ,Bits inexact = Bits(0)
+    #endif
+    )
 {
     using value_type = pod_type_t<Bits>;
  
@@ -1224,7 +1228,7 @@ inline Bits RoundToOdd(Bits bits, Roundoff roundoff)
         Bits truncated = bits & high_mask;
  
         Bits tail = bits & low_mask;
-        return truncated | (tail != 0 ? Bits{1} << roundoff : Bits{0});
+        return truncated | ((tail != 0) ? Bits{1} << roundoff : Bits{0});
     }
 }
         //#TODO: add sign to list of args for roundUp and RoundDown
@@ -2163,7 +2167,9 @@ inline Bits RoundToOdd(Bits bits, Roundoff roundoff)
                 {
                     if (Fp.OV_behavior == lo_float::Inf_Behaviors::Saturating)
                     {
-                        return Templated_Float<Fp>::FromRep(((1 << (Fp.bitwidth)) - 1) >> 1);
+                        // Most-negative finite = positive max rep with the sign bit set,
+                        // i.e. -max(). Saturating has no infinity to step down from.
+                        return Templated_Float<Fp>::FromRep((1 << (Fp.bitwidth)) - 1);
                     }
                     return Templated_Float<Fp>::FromRep(Fp.IsInf.minNegInf() - 1);
                 }
@@ -3995,8 +4001,15 @@ struct BinOpProxy {
 
     template <typename Out>
     constexpr LOFLOAT_HOST_DEVICE LOFLOAT_FORCEINLINE operator Out() const noexcept {
+        #ifdef USE_FENV_INEXACT
+        feclearexcept(FE_INEXACT);
+        #endif
+        const auto z = Op{}(static_cast<float>(x), static_cast<float>(y));
+        #ifdef USE_FENV_INEXACT
+        ps.inexact = (fetestexcept(FE_INEXACT) != 0);
+        #endif
         return ConvertImpl<float, Out>::run(
-            Op{}(static_cast<float>(x), static_cast<float>(y)), ps);
+            Op{}(z), ps);
     }
 };
 

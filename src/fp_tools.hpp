@@ -79,12 +79,23 @@ struct ProjSpec {
     Rounding_Mode rounding_mode;
     Saturation_Mode saturation_mode;
     int stoch_length; // number of bits for stochastic rounding (0 = none)
+    #ifdef USE_FENV_INEXACT
+    int inexact; // used mainly for round_to_odd, should set to 1 if prev op was inexact, 0 if exact. Inexact can either be queried from fenv.h or by checking trailing bits before round
+    #endif
 
     // explicit: a bare Rounding_Mode must NOT implicitly become a ProjSpec — every
     // call site has to pass a ProjSpec, so the old (Rounding_Mode[, stoch]) API can't
     // sneak back in via implicit conversion. Still default-constructible (ProjSpec{}).
-    constexpr explicit LOFLOAT_HOST_DEVICE ProjSpec(Rounding_Mode rm = Rounding_Mode::RoundToNearestEven, Saturation_Mode sm = Saturation_Mode::OvfInf, int stoch_len = 0)
-        : rounding_mode(rm), saturation_mode(sm), stoch_length(stoch_len) {}
+    constexpr explicit LOFLOAT_HOST_DEVICE ProjSpec(Rounding_Mode rm = Rounding_Mode::RoundToNearestEven, Saturation_Mode sm = Saturation_Mode::OvfInf, int stoch_len = 0
+    #ifdef USE_FENV_INEXACT
+    , int inexact_flag = 0
+    #endif
+    )
+        : rounding_mode(rm), saturation_mode(sm), stoch_length(stoch_len) 
+        #ifdef USE_FENV_INEXACT
+        ,inexact(inexact_flag)
+        #endif
+        {}
 };
 
 /**

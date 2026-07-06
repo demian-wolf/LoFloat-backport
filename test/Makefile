@@ -15,6 +15,18 @@ ifeq ($(OPENMP_AVAILABLE),yes)
   CXXFLAGS += $(OPENMP_FLAG) -D_LOFOPENMP
 endif
 
+# HW inexact flag (USE_FENV_INEXACT) — reads FE_INEXACT; used mainly for RoundToOdd.
+# Host-only, so force it off when OpenMP or CUDA is active.
+ifeq ($(USE_FENV_INEXACT),1)
+  ifeq ($(OPENMP_AVAILABLE),yes)
+    $(info USE_FENV_INEXACT=1 ignored: disabled because OpenMP is active.)
+  else ifeq ($(USE_CUDA_VAR),1)
+    $(info USE_FENV_INEXACT=1 ignored: disabled because USE_CUDA is set.)
+  else
+    CXXFLAGS += -DUSE_FENV_INEXACT
+  endif
+endif
+
 CUDA_AVAILABLE := $(shell \
   echo "int main(){return 0;}" | \
   nvcc -x cu - -o /dev/null 2>/dev/null && echo yes)
@@ -57,9 +69,9 @@ LLVM_FLAGS = -S -emit-llvm
 # (ultra_low_tests.cpp / compare_int_test.cpp) do not exist and have no equivalent.
 ALL_EXEC = test_lo_float test_lo_float_arith test_expectation \
            test_probability test_prob_round test_exceptions test_unsigned \
-           test_rounding_modes test_sat_mode test_small test_enum \
+           test_rounding_modes test_sat_mode test_edge_cases test_small test_enum \
            test_compare test_recip test_float_int test_fixed_point test_lo_int \
-           test_dot test_gemm \
+           test_dot test_gemm test_matrix_vector test_block_ops \
            test_blis_lof test_blis_lof_accum \
            test_virtual_mx_round test_pack
 
@@ -171,6 +183,9 @@ test_rounding_modes: test_rounding_modes.cpp
 test_sat_mode: test_sat_mode.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDE_PATH) $< -o $@
 
+test_edge_cases: test_edge_cases.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDE_PATH) $< -o $@
+
 test_float_int: test_float_to_int.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDE_PATH) $< -o $@
 
@@ -193,6 +208,12 @@ test_dot: dot_test.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDE_PATH) $< -o $@
 
 test_gemm: gemm_test.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDE_PATH) $< -o $@
+
+test_matrix_vector: test_matrix_vector.cpp
+	$(CXX) $(CXXFLAGS) $(INCLUDE_PATH) $< -o $@
+
+test_block_ops: test_block_ops.cpp
 	$(CXX) $(CXXFLAGS) $(INCLUDE_PATH) $< -o $@
 
 test_pack: test_pack.cpp

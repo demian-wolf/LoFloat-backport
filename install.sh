@@ -11,7 +11,7 @@ git submodule update --init --recursive
 
 # ---- 1. C++ headers via CMake ----
 echo "==> Installing C++ headers..."
-cmake -B build -DCUDAToolkit_ROOT=/usr/local/cuda-13.2
+cmake -B build -DCUDAToolkit_ROOT="${CUDA_HOME}"
 cmake --build build
 
 # ---- 2. Python/Torch extension ----

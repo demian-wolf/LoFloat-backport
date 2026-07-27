@@ -6,8 +6,8 @@ set -e
 # checked out. blis must additionally be *compiled* before the BLIS
 # micro-kernel tests; that build is driven on demand by test/Makefile
 # (`make blis` / `make test_blis_lof`), not here.
-echo "==> Updating git submodules..."
-git submodule update --init --recursive
+# echo "==> Updating git submodules..."
+# git submodule update --init --recursive
 
 # ---- 1. C++ headers via CMake ----
 echo "==> Installing C++ headers..."
